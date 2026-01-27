@@ -171,6 +171,16 @@ const threeContext = {
   UnrealBloomPass,
 };
 
+// Create Trusted Types policy for controlled code evaluation
+// This is required by the CSP which enables 'unsafe-eval' only with Trusted Types
+const threeJsPolicy = window.trustedTypes?.createPolicy("threejs-scene", {
+  createScript: (code: string) => {
+    // The code is validated by the server before being sent to the client
+    // Additional runtime validation could be added here if needed
+    return code;
+  },
+});
+
 async function executeThreeCode(
   code: string,
   canvas: HTMLCanvasElement,
@@ -178,14 +188,21 @@ async function executeThreeCode(
   height: number,
   visibilityAwareRAF: (callback: FrameRequestCallback) => number,
 ): Promise<void> {
-  const fn = new Function(
+  const scriptBody = `const { THREE, OrbitControls, EffectComposer, RenderPass, UnrealBloomPass } = ctx;
+     return (async () => { ${code} })();`;
+
+  // Use Trusted Types if available (required by CSP with trustedTypes declared)
+  const trustedScript = threeJsPolicy
+    ? threeJsPolicy.createScript(scriptBody)
+    : scriptBody;
+
+  const fn = TrustedFunction.create(
     "ctx",
     "canvas",
     "width",
     "height",
     "requestAnimationFrame",
-    `const { THREE, OrbitControls, EffectComposer, RenderPass, UnrealBloomPass } = ctx;
-     return (async () => { ${code} })();`,
+    trustedScript,
   );
   await fn(threeContext, canvas, width, height, visibilityAwareRAF);
 }
@@ -285,4 +302,39 @@ export default function ThreeJSApp({
       {error && <div className="error-overlay">Error: {error}</div>}
     </div>
   );
+}
+
+/**
+ * `new Function` workaround for Chromium
+ * @see https://github.com/w3c/trusted-types/wiki/Trusted-Types-for-function-constructor
+ */
+class TrustedFunction {
+  private static policy = window.trustedTypes?.createPolicy(
+    "trusted-function",
+    {
+      createScript: (_, ...args) => {
+        if (!window.trustedTypes?.isScript(args.at(-1))) {
+          throw new Error("TrustedScripts only, please");
+        }
+
+        const fnArgs = args.slice(0, -1).join(",");
+        const fnBody = args.pop().toString();
+        const body = `(function anonymous(
+       ${fnArgs}
+       ) {
+       ${fnBody}
+       })`;
+        return body;
+      },
+    },
+  );
+
+  public static create(...args: (string | TrustedScript)[]) {
+    if (TrustedFunction.policy) {
+      const tt = TrustedFunction.policy.createScript("", ...args);
+      return (window || self).eval(tt as any);
+    } else {
+      return new Function(...(args as string[]));
+    }
+  }
 }

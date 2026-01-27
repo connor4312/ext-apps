@@ -53,10 +53,16 @@ const RESOURCE_READY_NOTIFICATION: McpUiSandboxResourceReadyNotification["method
 const PROXY_READY_NOTIFICATION: McpUiSandboxProxyReadyNotification["method"] =
   "ui/notifications/sandbox-proxy-ready";
 
+const trustedTypePolicy = window.trustedTypes?.createPolicy("_sandbox_html", {
+  createHTML: (html: string) => {
+    return html;
+  },
+});
+
 // Message relay: This Sandbox (outer iframe) acts as a bidirectional bridge,
 // forwarding messages between:
 //
-//   Host (parent window) ↔ Sandbox (outer frame) ↔ View (inner iframe)
+//   Host (parent window) ↔ Sandbox (outer frame) ↔ Guest UI (inner iframe)
 //
 // Reason: the parent window and inner iframe have different origins and can't
 // communicate directly, so the outer iframe forwards messages in both
@@ -64,7 +70,7 @@ const PROXY_READY_NOTIFICATION: McpUiSandboxProxyReadyNotification["method"] =
 //
 // Special case: The "ui/notifications/sandbox-proxy-ready" message is
 // intercepted here (not relayed) because the Sandbox uses it to configure and
-// load the inner iframe with the view HTML content.
+// load the inner iframe with the Guest UI HTML content.
 //
 // Security: CSP is enforced via HTTP headers on sandbox.html (set by serve.ts
 // based on ?csp= query param). This is tamper-proof unlike meta tags.
@@ -95,16 +101,17 @@ window.addEventListener("message", async (event) => {
         inner.setAttribute("allow", allowAttribute);
       }
       if (typeof html === "string") {
+        const toWrite = trustedTypePolicy?.createHTML(html) || html;
         // Use document.write instead of srcdoc (which the CesiumJS Map won't work with)
         const doc = inner.contentDocument || inner.contentWindow?.document;
         if (doc) {
           doc.open();
-          doc.write(html);
+          doc.write(toWrite as string);
           doc.close();
         } else {
           // Fallback to srcdoc if document is not accessible
           console.warn("[Sandbox] document.write not available, falling back to srcdoc");
-          inner.srcdoc = html;
+          inner.srcdoc = toWrite as string;
         }
       }
     } else {
@@ -128,7 +135,7 @@ window.addEventListener("message", async (event) => {
   }
 });
 
-// Notify the Host that the Sandbox is ready to receive view HTML.
+// Notify the Host that the Sandbox is ready to receive Guest UI HTML.
 // Use specific origin instead of "*" to ensure only the expected host receives this.
 window.parent.postMessage({
   jsonrpc: "2.0",

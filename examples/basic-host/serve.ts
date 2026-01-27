@@ -71,11 +71,16 @@ function buildCspHeader(csp?: McpUiResourceCsp): string {
   const baseUriDomains =
     sanitizeCspDomains(csp?.baseUriDomains).join(" ") || null;
 
+  // Only add 'unsafe-eval' when Trusted Types is declared (provides controlled evaluation)
+  const trustedTypes = sanitizeCspDomains(csp?.trustedTypes);
+  const evalDirective = trustedTypes.length > 0 ? " 'unsafe-eval'" : "";
+
   const directives = [
     // Default: allow same-origin + inline styles/scripts (needed for bundled apps)
     "default-src 'self' 'unsafe-inline'",
-    // Scripts: same-origin + inline + eval (some libs need eval) + blob (workers) + specified domains
-    `script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: data: ${resourceDomains}`.trim(),
+    // Scripts: same-origin + inline + blob (workers) + specified domains
+    // 'unsafe-eval' only allowed when Trusted Types is declared for controlled evaluation
+    `script-src 'self' 'unsafe-inline'${evalDirective} blob: data: ${resourceDomains}`.trim(),
     // Styles: same-origin + inline + specified domains
     `style-src 'self' 'unsafe-inline' blob: data: ${resourceDomains}`.trim(),
     // Images: same-origin + data/blob URIs + specified domains
@@ -97,6 +102,13 @@ function buildCspHeader(csp?: McpUiResourceCsp): string {
     // Base URI: use baseUriDomains if provided, otherwise block all
     baseUriDomains ? `base-uri ${baseUriDomains}` : "base-uri 'none'",
   ];
+
+  // Add Trusted Types directives when trustedTypes is declared
+  if (trustedTypes.length > 0) {
+    trustedTypes.push('_sandbox_html');
+    directives.push("require-trusted-types-for 'script'");
+    directives.push(`trusted-types ${trustedTypes.join(" ")}`);
+  }
 
   return directives.join("; ");
 }

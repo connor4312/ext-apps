@@ -219,6 +219,13 @@ export function createServer(): McpServer {
             uri: resourceUri,
             mimeType: RESOURCE_MIME_TYPE,
             text: html,
+            _meta: {
+              ui: {
+                csp: {
+                  trustedTypes: ["threejs-scene", "trusted-function"],
+                },
+              },
+            },
           },
         ],
       };
